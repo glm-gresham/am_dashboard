@@ -10,6 +10,7 @@ import altair as alt
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit_shadcn_ui as ui
 
 import raw_availability_data as raw_availability_data_module
 from asset_metadata import ASSET_METADATA_PATH
@@ -61,7 +62,7 @@ APP_VERSION_RELEASED = "16 Jun 2026"
 APP_VERSION_CHANGES = (
     "Local Git repository initialised for the AM Dashboard workspace.",
     "Availability module navigation added for portfolio, asset detail, and commercial views.",
-    "Streamlit UI sharpened with cleaner dashboard surfaces and tab styling.",
+    "Shadcn-style Streamlit KPI cards and status badges added to the dashboard shell.",
 )
 RAW_COMPONENT_CACHE_VERSION = "site-level-min-pcs-battery-v4-bradford-sources"
 INCIDENT_CACHE_VERSION = "incidents-open-items-v1"
@@ -122,6 +123,28 @@ def version_badge_html() -> str:
     )
 
 
+def render_context_badges(source_name: str, max_timestamp: pd.Timestamp) -> None:
+    ui.badges(
+        badge_list=[
+            (APP_VERSION_NAME, "secondary"),
+            (source_name, "outline"),
+            (f"Updated {max_timestamp:%d %b %Y %H:%M}", "outline"),
+        ],
+        class_name="dashboard-context-badges",
+        key="dashboard_context_badges",
+    )
+
+
+def render_availability_metric_card(title: str, value: float | None, delta: str | None, key: str) -> None:
+    description = delta or "No prior comparison"
+    ui.metric_card(
+        title=title,
+        content=format_pct(value),
+        description=description,
+        key=key,
+    )
+
+
 def brand_header_html(source_name: str, max_timestamp: pd.Timestamp) -> str:
     logo = ""
     if LOGO_PATH.exists():
@@ -136,7 +159,7 @@ def brand_header_html(source_name: str, max_timestamp: pd.Timestamp) -> str:
         "<h1>BESS Availability</h1>"
         f"{version_badge_html()}"
         "</div>"
-        f"<div class='timestamp'>Data source: {escape(source_name)} | Updated {max_timestamp:%d %b %Y %H:%M}</div>"
+        "<div class='timestamp'>Availability command centre for portfolio, asset, and commercial views.</div>"
         "</div>"
         "</div>"
     )
@@ -1895,6 +1918,7 @@ def main() -> None:
     title_col, filter_col = st.columns([0.78, 0.22], vertical_alignment="center")
     with title_col:
         st.markdown(brand_header_html(source_name, max_timestamp), unsafe_allow_html=True)
+        render_context_badges(source_name, max_timestamp)
 
     with filter_col:
         with st.popover("Filter by", use_container_width=True):
@@ -1922,24 +1946,27 @@ def main() -> None:
     last_month, prior_month = period_metric(filtered_df, max_timestamp, days=30)
 
     card_1, card_2, card_3 = st.columns(3)
-    card_1.metric(
-        "Last 3 hours",
-        format_pct(last_3h),
-        availability_delta(last_3h, prior_3h),
-        delta_color="normal",
-    )
-    card_2.metric(
-        "Last 24 hours",
-        format_pct(last_24h),
-        availability_delta(last_24h, prior_24h),
-        delta_color="normal",
-    )
-    card_3.metric(
-        "Last month",
-        format_pct(last_month),
-        availability_delta(last_month, prior_month),
-        delta_color="normal",
-    )
+    with card_1:
+        render_availability_metric_card(
+            "Last 3 hours",
+            last_3h,
+            availability_delta(last_3h, prior_3h),
+            "availability_metric_last_3h",
+        )
+    with card_2:
+        render_availability_metric_card(
+            "Last 24 hours",
+            last_24h,
+            availability_delta(last_24h, prior_24h),
+            "availability_metric_last_24h",
+        )
+    with card_3:
+        render_availability_metric_card(
+            "Last month",
+            last_month,
+            availability_delta(last_month, prior_month),
+            "availability_metric_last_month",
+        )
 
     component_daily = None
     component_load_error = None
