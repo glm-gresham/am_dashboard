@@ -16,10 +16,17 @@ import raw_availability_data as raw_availability_data_module
 from asset_metadata import ASSET_METADATA_PATH
 from availability_domain import (
     availability_domain_table_inventory,
+    calculate_final_availability,
     build_contract_seed_view,
     build_discrepancy_events,
     build_export_pack_catalog,
     build_monthly_availability_seed,
+    exclusions_template,
+    export_final_availability_pack,
+    parse_uploaded_exclusions,
+    parse_uploaded_raw_availability,
+    raw_upload_template,
+    template_csv_bytes,
 )
 from availability_data import (
     aggregate_asset_availability,
@@ -1111,8 +1118,189 @@ def build_asset_detail_chart(asset_daily: pd.DataFrame, title: str) -> go.Figure
     return fig
 
 
+def render_final_availability_workbench(df: pd.DataFrame) -> None:
+    st.markdown("<div class='section-title'>Final Availability Workbench</div>", unsafe_allow_html=True)
+
+    template_col, upload_col = st.columns([0.34, 0.66])
+    with template_col:
+        st.download_button(
+            "Raw template",
+            data=template_csv_bytes(raw_upload_template()),
+            file_name="raw_availability_template.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+        st.download_button(
+            "Exclusions template",
+            data=template_csv_bytes(exclusions_template()),
+            file_name="availability_exclusions_template.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+    with upload_col:
+        raw_files_uploaded = st.file_uploader(
+            "Raw availability files",
+            type=["csv", "xlsx", "xlsm"],
+            accept_multiple_files=True,
+            key="final_availability_raw_uploads",
+        )
+        exclusions_file = st.file_uploader(
+            "Exclusions register",
+            type=["csv", "xlsx", "xlsm"],
+            key="final_availability_exclusions_upload",
+        )
+
+    threshold_pct = st.number_input(
+        "Contract availability threshold",
+        min_value=0.0,
+        max_value=100.0,
+        value=95.0,
+        step=0.1,
+        format="%.1f",
+        key="final_availability_threshold",
+    )
+    use_current_data = st.checkbox(
+        "Use current dashboard data",
+        value=False,
+        key="final_availability_use_current_data",
+    )
+
+    if raw_files_uploaded:
+        raw_upload, raw_messages = parse_uploaded_raw_availability(raw_files_uploaded, df)
+    elif use_current_data:
+        raw_upload = df.copy()
+        raw_upload["source_file"] = "Current dashboard data"
+        raw_messages = []
+    else:
+        st.info("Upload raw availability data or use the current dashboard data to calculate final availability.")
+        return
+
+    for message in raw_messages:
+        st.warning(message)
+    if raw_upload.empty:
+        st.warning("No usable raw availability rows are available.")
+        return
+
+    exclusions, exclusion_messages = parse_uploaded_exclusions(exclusions_file, raw_upload)
+    for message in exclusion_messages:
+        st.warning(message)
+
+    final_result = calculate_final_availability(raw_upload, exclusions, threshold_pct)
+    contract_position = final_result["contract_position"]
+    portfolio_position = contract_position[contract_position["asset_id"].eq("PORTFOLIO")]
+    summary_row = portfolio_position.iloc[0] if not portfolio_position.empty else contract_position.iloc[0]
+
+    metric_1, metric_2, metric_3, metric_4 = st.columns(4)
+    with metric_1:
+        ui.metric_card(
+            title="Gross availability",
+            content=format_pct(summary_row.gross_availability_pct),
+            description="Before uploaded exclusions",
+            key="final_gross_availability_card",
+        )
+    with metric_2:
+        ui.metric_card(
+            title="Final availability",
+            content=format_pct(summary_row.final_availability_pct),
+            description="After uploaded exclusions",
+            key="final_net_availability_card",
+        )
+    with metric_3:
+        ui.metric_card(
+            title="Excluded intervals",
+            content=f"{int(summary_row.excluded_intervals):,}",
+            description=f"{int(summary_row.excluded_days):,} excluded days",
+            key="final_excluded_intervals_card",
+        )
+    with metric_4:
+        ui.metric_card(
+            title="Discrepancy events",
+            content=f"{len(final_result['discrepancy_events']):,}",
+            description=f"Below {threshold_pct:.1f}% threshold",
+            key="final_discrepancy_events_card",
+        )
+
+    display_position = contract_position.rename(
+        columns={
+            "asset_name": "Asset",
+            "gross_availability_pct": "Gross availability",
+            "final_availability_pct": "Final availability",
+            "availability_delta_pct": "Delta",
+            "observed_intervals": "Observed intervals",
+            "excluded_intervals": "Excluded intervals",
+            "retained_intervals": "Retained intervals",
+            "excluded_days": "Excluded days",
+            "period_start": "Period start",
+            "period_end": "Period end",
+        }
+    )
+    st.dataframe(
+        display_position[
+            [
+                "Asset",
+                "Gross availability",
+                "Final availability",
+                "Delta",
+                "Observed intervals",
+                "Excluded intervals",
+                "Retained intervals",
+                "Excluded days",
+                "Period start",
+                "Period end",
+            ]
+        ],
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "Gross availability": st.column_config.NumberColumn(format="%.2f%%"),
+            "Final availability": st.column_config.NumberColumn(format="%.2f%%"),
+            "Delta": st.column_config.NumberColumn(format="%+.2f pts"),
+            "Observed intervals": st.column_config.NumberColumn(format="%d"),
+            "Excluded intervals": st.column_config.NumberColumn(format="%d"),
+            "Retained intervals": st.column_config.NumberColumn(format="%d"),
+            "Excluded days": st.column_config.NumberColumn(format="%d"),
+        },
+    )
+
+    export_bytes = export_final_availability_pack(final_result)
+    st.download_button(
+        "Download final availability pack",
+        data=export_bytes,
+        file_name="final_availability_pack.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
+
+    detail_col, event_col = st.columns([0.52, 0.48])
+    with detail_col:
+        st.markdown("<div class='section-title'>Exclusions Register</div>", unsafe_allow_html=True)
+        if final_result["exclusions_register"].empty:
+            st.info("No exclusions have been applied.")
+        else:
+            st.dataframe(final_result["exclusions_register"], hide_index=True, use_container_width=True)
+    with event_col:
+        st.markdown("<div class='section-title'>Final Availability Events</div>", unsafe_allow_html=True)
+        if final_result["discrepancy_events"].empty:
+            st.info("No final availability discrepancy events were detected.")
+        else:
+            st.dataframe(
+                final_result["discrepancy_events"].head(25),
+                hide_index=True,
+                use_container_width=True,
+                column_config={
+                    "threshold_pct": st.column_config.NumberColumn(format="%.1f%%"),
+                    "mean_final_availability_pct": st.column_config.NumberColumn(format="%.1f%%"),
+                    "lowest_final_availability_pct": st.column_config.NumberColumn(format="%.1f%%"),
+                    "availability_impact_mw_days": st.column_config.NumberColumn(format="%.2f"),
+                },
+            )
+
+
 def render_commercial_om_module(df: pd.DataFrame, component_daily: pd.DataFrame | None) -> None:
     st.markdown("<div class='section-title'>Commercial / O&M Contract Management</div>", unsafe_allow_html=True)
+
+    render_final_availability_workbench(df)
 
     component_source = component_daily if component_daily is not None else pd.DataFrame()
     contract_seed = build_contract_seed_view(df)
