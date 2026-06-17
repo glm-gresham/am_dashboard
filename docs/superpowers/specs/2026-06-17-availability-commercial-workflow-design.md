@@ -40,16 +40,40 @@ Raw availability records should resolve to:
 
 The event tracker remains external because contractors should not access the AM Dashboard. The current source is a shared XLSX file used by the owner and contractors. The dashboard should consume that XLSX export first, then later consume records from the polished online event tracker when it is available.
 
+The Stage 1 XLSX tracker columns are:
+
+| XLSX column | Normalised field | Notes |
+| --- | --- | --- |
+| `event ID` | `event_id` | Treat as text so leading zeros are preserved. |
+| `site name` | `asset_name` | Match to static asset metadata. |
+| `type1` | `event_type_1` | Current high-level tracker category. |
+| `type2` | `event_type_2` | Current subtype or event description. |
+| `device type` | `device_granularity` | Examples include `PCS`, `batteries`, `transformer`, and `PCS-module`. |
+| `device name` | `affected_device` | Preserve as text. |
+| `status` | `tracker_status` | Event lifecycle status such as `open`, `ongoing`, or `closed`. This is not approval status. |
+| `start date` | `start_timestamp` | Current format is day-month-year. |
+| `end date` | `end_timestamp` | Can be blank for open or ongoing events. |
+
+Stage 2 should add:
+
+- `severity`
+- `assigned_to`
+
+These two fields belong to the related event tracker project and should be added to the AM Dashboard import once that tracker has them.
+
 Tracker records should resolve to:
 
 - `event_id`
 - `site_id` or `asset_id`
 - `asset_name`
+- `event_type_1`
+- `event_type_2`
 - `affected_device`
 - `device_granularity`
+- `tracker_status`
 - `start_timestamp`
 - `end_timestamp`
-- `request_reason`
+- `request_reason`, derived from the type fields when no separate reason exists
 - `contractor_comment`
 - `requested_by`
 - `request_timestamp`
@@ -70,6 +94,8 @@ Supported approval states should be:
 - `Needs clarification`
 
 Only `Approved` records flow into the exclusion register used by the net availability calculation. Pending, rejected, and clarification-needed records remain visible for workflow management and audit, but they do not change final availability. For the first implementation, asset managers should record approval decisions inside the AM Dashboard after importing the external tracker data.
+
+The current XLSX `status` column should not be used as approval status. It describes the event lifecycle, such as open, ongoing, or closed. Imported tracker rows should default to an internal approval state such as `Pending` until the asset manager reviews them.
 
 ## Calculation Flow
 
@@ -110,6 +136,7 @@ The local SQLite repository should be extended to store:
 - event tracker imports
 - exclusion requests
 - approved exclusions
+- tracker lifecycle status separately from internal approval status
 - availability calculation runs
 - gross and net availability outputs
 - lost MWh outputs
@@ -136,12 +163,13 @@ The Portfolio Availability and Asset Detail tabs should consume the calculated o
 
 ## Implementation Notes
 
-The current manual upload workbench is a good first foundation. The next implementation should add current XLSX tracker import and approval-state handling before expanding the commercial impact views. Applying every uploaded exclusion row should be replaced with explicit filtering so only approved requests affect net availability. Lost revenue should be left for Stage 2.
+The current manual upload workbench is a good first foundation. The next implementation should add current XLSX tracker import and approval-state handling before expanding the commercial impact views. The parser should preserve `event ID`, `site name`, `type1`, `type2`, `device type`, `device name`, `status`, `start date`, and `end date`. Applying every uploaded exclusion row should be replaced with explicit filtering so only approved requests affect net availability. Lost revenue should be left for Stage 2.
 
 ## Open Decisions
 
-- Exact event tracker export format.
+- Parser tolerance for the current XLSX tracker, including sheet name, blank rows, date formats, and optional columns.
 - Stage 2 revenue price source for lost revenue calculations.
 - Commercial baseline for lost MWh, such as shortfall from 100% technical availability or shortfall from a contractual threshold.
 - Whether device-level capacity should come from SCADA exports, static metadata, or a new equipment register.
 - Whether calculation outputs should be persisted immediately in SQLite or initially generated as session outputs.
+- Exact timing for Stage 2 tracker fields `severity` and `assigned_to`, dependent on the event tracker project.

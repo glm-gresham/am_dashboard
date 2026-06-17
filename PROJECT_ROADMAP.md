@@ -36,8 +36,27 @@ During early development, manual CSV/XLSX uploads and SQLite are acceptable. The
 | Approval-state handling | Stage 1 | Not started | Only approved requests should affect net availability. |
 | Net availability calculation | Stage 1 | Started | Current calculation exists, but must be changed to approved-only exclusions. |
 | Lost MWh insight | Stage 1 | Not started | Useful after tracker approval flow is working. |
+| Tracker severity and owner fields | Stage 2 | Not started | Add `severity` and `assigned_to` after the event tracker project adds them. |
 | Lost revenue insight | Stage 2 | Not started | Leave for later after the MWh method and revenue assumptions are agreed. |
 | Online event tracker integration | Stage 2 | Not started | Replaces XLSX import once the polished tracker exists. |
+
+## Current XLSX Event Tracker Format
+
+The Stage 1 tracker import should target the current shared XLSX file used by the owner and contractors. The current columns are:
+
+| XLSX column | Dashboard meaning | Notes |
+| --- | --- | --- |
+| `event ID` | `event_id` | Treat as text so IDs such as `000` keep leading zeros. |
+| `site name` | `asset_name` | Match to the dashboard static asset metadata. |
+| `type1` | `event_type_1` | Current high-level tracker category, for example `fault`. |
+| `type2` | `event_type_2` | Current subtype or description, for example `unavailability` or `comms`. |
+| `device type` | `device_granularity` | Examples include `PCS`, `batteries`, `transformer`, and `PCS-module`. |
+| `device name` | `affected_device` | Preserve as text because naming varies by device type. |
+| `status` | `tracker_status` | Event lifecycle status such as `open`, `ongoing`, or `closed`; this is not the commercial approval status. |
+| `start date` | `start_timestamp` | Current format is day-month-year. |
+| `end date` | `end_timestamp` | Can be blank for open or ongoing events. |
+
+Stage 2 should add `severity` and `assigned_to` once those fields are added to the related event tracker project. The AM Dashboard roadmap and parser should stay aligned with that project.
 
 ## Phase 1: Local Foundation
 
@@ -94,8 +113,9 @@ Goal: support the internal raw-to-net availability workflow.
 
 - Upload raw availability files from SCADA exports.
 - Import event tracker XLSX exports from the current shared owner/contractor tracker.
-- Map tracker records to exclusion requests using event ID, site, affected device, start time, end time, reason, and status.
+- Map tracker records to exclusion requests using event ID, site, type fields, affected device, tracker status, start date, and end date.
 - Show request states such as `Pending`, `Approved`, `Rejected`, and `Needs clarification`.
+- Keep tracker lifecycle status separate from internal approval status.
 - Apply only approved exclusions to the net availability calculation.
 - Keep pending and rejected requests visible for workflow management and audit.
 - Generate a gross-to-net availability bridge.
@@ -157,9 +177,10 @@ Beginner checkpoint:
 
 ## Current Next Actions
 
-1. Confirm the current XLSX event tracker format and required fields.
-2. Add tracker import and approval-state handling to the Commercial / O&M module.
+1. Build the current XLSX event tracker import using the documented column mapping.
+2. Add approval-state handling to the Commercial / O&M module.
 3. Change net availability so only approved exclusions are applied.
 4. Add lost MWh calculations using MW capacity and interval duration.
 5. Extend the export pack with tracker requests, approved exclusions, lost MWh, and audit lineage.
-6. Confirm whether the dashboard will be hosted on Streamlit Community Cloud, an internal server, or another company-approved platform.
+6. Keep `severity` and `assigned_to` as Stage 2 tracker fields, aligned with the event tracker project.
+7. Confirm whether the dashboard will be hosted on Streamlit Community Cloud, an internal server, or another company-approved platform.
