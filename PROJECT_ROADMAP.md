@@ -4,7 +4,20 @@ This roadmap is written for a non-developer project owner who wants to learn the
 
 ## Target Architecture
 
-The dashboard should use this data flow:
+The dashboard should become the internal availability calculation and commercial review layer. It should not replace contractor systems. Contractors will continue to use an external event tracker, while asset managers use the AM Dashboard to import raw availability, review exclusion requests, calculate net availability, and understand commercial impact.
+
+The target operating workflow is:
+
+1. Raw availability figures are downloaded from the relevant SCADAs for each site.
+2. Asset managers upload the raw availability files into the AM Dashboard.
+3. Contractors submit exclusion requests in an external event tracker.
+4. Asset managers import tracker exports into the AM Dashboard.
+5. The dashboard shows exclusion requests by approval state.
+6. Only approved requests flow into the exclusion register used for net availability.
+7. Asset managers run the net availability calculation.
+8. The dashboard reports availability, lost MWh, lost revenue, export packs, and audit trail outputs.
+
+The intended data architecture remains:
 
 1. Snowflake stores the governed source data.
 2. A controlled sync step pulls the required dashboard data from Snowflake.
@@ -12,7 +25,7 @@ The dashboard should use this data flow:
 4. The Streamlit user interface reads from SQLite only.
 5. GitHub stores the project code, documentation, and deployment workflow.
 
-This keeps the user interface simple and testable. It also means the app can be run locally with sample data before any production credentials are involved.
+During early development, manual CSV/XLSX uploads and SQLite are acceptable. Later, SCADA data and event tracker data can be automated through APIs, Snowflake ingestion, or governed file drops. This keeps the user interface simple and testable while allowing the operating model to mature.
 
 ## Phase 1: Local Foundation
 
@@ -63,7 +76,44 @@ Beginner checkpoint:
 - You can describe the difference between source data in Snowflake and dashboard-ready data in SQLite.
 - You know why credentials are never committed to GitHub.
 
-## Phase 4: GitHub Workflow
+## Phase 4: Availability Workflow
+
+Goal: support the internal raw-to-net availability workflow.
+
+- Upload raw availability files from SCADA exports.
+- Import event tracker exports from the external contractor tracker.
+- Map tracker records to exclusion requests using event ID, site, affected device, start time, end time, reason, and status.
+- Show request states such as `Pending`, `Approved`, `Rejected`, and `Needs clarification`.
+- Apply only approved exclusions to the net availability calculation.
+- Keep pending and rejected requests visible for workflow management and audit.
+- Generate a gross-to-net availability bridge.
+- Persist calculation runs and file lineage when the data model is ready.
+
+Beginner checkpoint:
+
+- You can explain why contractor requests are not automatically commercial exclusions.
+- You know which approval statuses affect net availability.
+- You can trace a final availability number back to raw availability files and approved tracker records.
+
+## Phase 5: Commercial Impact
+
+Goal: quantify the commercial consequences of availability loss.
+
+- Calculate lost MWh by site and period.
+- Calculate lost MWh by device and period when device-level data is available.
+- Calculate lost revenue by site and period.
+- Calculate lost revenue by device and period.
+- Show pending exclusion exposure so asset managers can see the value still awaiting decision.
+- Add export packs for commercial review, including gross-to-net bridge, exclusions, discrepancies, lost MWh, lost revenue, and audit trail.
+- Agree the price source or price assumption used for lost revenue.
+
+Beginner checkpoint:
+
+- You can explain the difference between availability percentage, lost MWh, and lost revenue.
+- You know which price assumption or revenue source is being used.
+- You can identify whether a commercial impact number is final or still affected by pending exclusions.
+
+## Phase 6: GitHub Workflow
 
 Goal: make changes safely and keep a clean project history.
 
@@ -80,7 +130,7 @@ Beginner checkpoint:
 - You know the difference between commit and push.
 - You understand that GitHub stores code, not passwords or local database files.
 
-## Phase 5: Deployment
+## Phase 7: Deployment
 
 Goal: deploy the dashboard in a repeatable way.
 
@@ -98,8 +148,10 @@ Beginner checkpoint:
 
 ## Current Next Actions
 
-1. Build and test the SQLite repository locally with sample data.
-2. Confirm the real Snowflake table or view name.
-3. Confirm whether the dashboard will be hosted on Streamlit Community Cloud, an internal server, or another company-approved platform.
-4. Install Git so the project can be versioned and pushed to GitHub.
-5. Move any local-only assets, such as logos, into a repo-safe `assets/` folder.
+1. Confirm the event tracker export format and required fields.
+2. Add tracker import and approval-state handling to the Commercial / O&M module.
+3. Change net availability so only approved exclusions are applied.
+4. Add lost MWh calculations using MW capacity and interval duration.
+5. Agree the first revenue price assumption or source for lost revenue.
+6. Extend the export pack with tracker requests, approved exclusions, lost MWh, lost revenue, and audit lineage.
+7. Confirm whether the dashboard will be hosted on Streamlit Community Cloud, an internal server, or another company-approved platform.
