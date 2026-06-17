@@ -118,6 +118,46 @@ EXCLUSION_COLUMN_ALIASES = {
     "reason": "reason",
     "description": "reason",
     "status": "status",
+    "approval_status": "approval_status",
+    "approval status": "approval_status",
+}
+
+TRACKER_COLUMN_ALIASES = {
+    "event id": "event_id",
+    "event_id": "event_id",
+    "eventid": "event_id",
+    "site name": "asset_name",
+    "site_name": "asset_name",
+    "site": "asset_name",
+    "asset name": "asset_name",
+    "asset_name": "asset_name",
+    "type1": "event_type_1",
+    "type 1": "event_type_1",
+    "type_1": "event_type_1",
+    "type2": "event_type_2",
+    "type 2": "event_type_2",
+    "type_2": "event_type_2",
+    "device type": "device_granularity",
+    "device_type": "device_granularity",
+    "device name": "affected_device",
+    "device_name": "affected_device",
+    "affected device": "affected_device",
+    "affected_device": "affected_device",
+    "status": "tracker_status",
+    "tracker status": "tracker_status",
+    "tracker_status": "tracker_status",
+    "start date": "start_timestamp",
+    "start_date": "start_timestamp",
+    "start": "start_timestamp",
+    "end date": "end_timestamp",
+    "end_date": "end_timestamp",
+    "end": "end_timestamp",
+    "approval_status": "approval_status",
+    "approval status": "approval_status",
+    "approval": "approval_status",
+    "severity": "severity",
+    "assigned_to": "assigned_to",
+    "assigned to": "assigned_to",
 }
 
 AVAILABILITY_DOMAIN_SCHEMA_SQL = """
@@ -407,6 +447,94 @@ def parse_uploaded_exclusions(file: object | None, raw_availability: pd.DataFram
     return exclusions[_empty_exclusions_frame().columns], messages
 
 
+def parse_uploaded_event_tracker(file: object | None, raw_availability: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    if file is None:
+        return _empty_tracker_frame(), []
+
+    file_name = getattr(file, "name", "uploaded_event_tracker")
+    try:
+        table = _read_uploaded_table(file_name, _uploaded_file_bytes(file))
+    except Exception as exc:  # noqa: BLE001
+        return _empty_tracker_frame(), [f"{file_name}: {exc}"]
+
+    table = _standardise_columns(table, TRACKER_COLUMN_ALIASES)
+    required = {"event_id", "asset_name", "start_timestamp"}
+    missing = required.difference(table.columns)
+    if missing:
+        return _empty_tracker_frame(), [f"{file_name}: missing required columns: {', '.join(sorted(missing))}."]
+
+    for column in _empty_tracker_frame().columns:
+        if column not in table.columns:
+            table[column] = pd.NA
+
+    tracker = table[_empty_tracker_frame().columns].copy()
+    tracker["event_id"] = tracker["event_id"].map(_format_event_id)
+    tracker["asset_id"] = tracker["asset_id"].map(_clean_optional_text)
+    tracker["asset_name"] = tracker["asset_name"].map(_clean_optional_text)
+    tracker["event_type_1"] = tracker["event_type_1"].map(_clean_optional_text)
+    tracker["event_type_2"] = tracker["event_type_2"].map(_clean_optional_text)
+    tracker["device_granularity"] = tracker["device_granularity"].map(_clean_optional_text)
+    tracker["affected_device"] = tracker["affected_device"].map(_clean_optional_text)
+    tracker["tracker_status"] = tracker["tracker_status"].map(_clean_optional_text)
+    tracker["approval_status"] = tracker["approval_status"].map(_normalise_approval_status).replace("", "Pending")
+    tracker["severity"] = tracker["severity"].map(_clean_optional_text)
+    tracker["assigned_to"] = tracker["assigned_to"].map(_clean_optional_text)
+    tracker["start_timestamp"] = tracker["start_timestamp"].map(_parse_tracker_start_timestamp)
+    tracker["end_timestamp"] = tracker["end_timestamp"].map(_parse_tracker_end_timestamp)
+    tracker["source_file"] = file_name
+    tracker["exclusion_reason"] = tracker.apply(_tracker_exclusion_reason, axis=1)
+    tracker = tracker.dropna(subset=["event_id", "asset_name", "start_timestamp"])
+
+    if tracker.empty:
+        return _empty_tracker_frame(), [f"{file_name}: no valid tracker rows found."]
+
+    tracker = _enrich_uploaded_exclusions(tracker, raw_availability)
+    return tracker[_empty_tracker_frame().columns], []
+
+
+def approved_exclusions_from_tracker(
+    tracker_records: pd.DataFrame,
+    raw_availability: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    columns = [
+        "exclusion_id",
+        "event_id",
+        "asset_id",
+        "asset_name",
+        "affected_device",
+        "device_granularity",
+        "tracker_status",
+        "approval_status",
+        "start_timestamp",
+        "end_timestamp",
+        "category",
+        "reason",
+        "status",
+    ]
+    if tracker_records is None or tracker_records.empty:
+        return pd.DataFrame(columns=columns)
+
+    tracker = tracker_records.copy()
+    tracker["approval_status"] = tracker.get("approval_status", pd.Series(index=tracker.index, dtype="object")).map(
+        _normalise_approval_status
+    )
+    approved = tracker[tracker["approval_status"].eq("Approved")].copy()
+    if approved.empty:
+        return pd.DataFrame(columns=columns)
+
+    approved["end_timestamp"] = _fill_open_tracker_end_dates(approved, raw_availability)
+    approved = approved.dropna(subset=["start_timestamp", "end_timestamp"])
+    approved = approved[approved["end_timestamp"] >= approved["start_timestamp"]].copy()
+    if approved.empty:
+        return pd.DataFrame(columns=columns)
+
+    approved["exclusion_id"] = approved["event_id"].map(lambda value: f"TRK-{value}")
+    approved["category"] = approved["event_type_1"].replace("", "Tracker event")
+    approved["reason"] = approved["exclusion_reason"].replace("", "Approved tracker exclusion")
+    approved["status"] = approved["approval_status"]
+    return approved[columns].reset_index(drop=True)
+
+
 def calculate_final_availability(
     raw_availability: pd.DataFrame,
     exclusions: pd.DataFrame,
@@ -429,6 +557,9 @@ def calculate_final_availability(
         exclusions["start_timestamp"] = pd.to_datetime(exclusions["start_timestamp"], errors="coerce")
         exclusions["end_timestamp"] = pd.to_datetime(exclusions["end_timestamp"], errors="coerce")
         exclusions = exclusions.dropna(subset=["start_timestamp", "end_timestamp"])
+        if "approval_status" in exclusions.columns:
+            approval_status = exclusions["approval_status"].map(_normalise_approval_status)
+            exclusions = exclusions[approval_status.eq("Approved") | approval_status.eq("")].copy()
         for exclusion in exclusions.itertuples(index=False):
             mask = _exclusion_mask(raw, exclusion)
             raw.loc[mask, "excluded"] = True
@@ -480,6 +611,7 @@ def export_final_availability_pack(result: dict[str, pd.DataFrame]) -> bytes:
         ("Daily Breakdown", "daily_breakdown"),
         ("Monthly Breakdown", "monthly_breakdown"),
         ("Raw To Net Bridge", "raw_to_net_bridge"),
+        ("Tracker Requests", "tracker_requests"),
         ("Discrepancy Events", "discrepancy_events"),
         ("Exclusions Register", "exclusions_register"),
         ("Audit Trail", "audit_trail"),
@@ -660,6 +792,109 @@ def _parse_single_raw_upload(file_name: str, file_bytes: bytes, asset_reference:
         return _normalise_simple_raw_upload(table, file_name)
 
     raise ValueError("unsupported file type. Upload CSV or XLSX files.")
+
+
+def _empty_tracker_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "event_id",
+            "asset_id",
+            "asset_name",
+            "event_type_1",
+            "event_type_2",
+            "device_granularity",
+            "affected_device",
+            "tracker_status",
+            "start_timestamp",
+            "end_timestamp",
+            "approval_status",
+            "severity",
+            "assigned_to",
+            "source_file",
+            "exclusion_reason",
+        ]
+    )
+
+
+def _format_event_id(value: object) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    if isinstance(value, (int, np.integer)):
+        return str(int(value)).zfill(3)
+    if isinstance(value, (float, np.floating)) and float(value).is_integer():
+        return str(int(value)).zfill(3)
+    text = _clean_optional_text(value)
+    if re.fullmatch(r"\d+", text):
+        return text.zfill(3)
+    return text
+
+
+def _parse_tracker_start_timestamp(value: object) -> pd.Timestamp:
+    return pd.to_datetime(value, errors="coerce", dayfirst=True)
+
+
+def _parse_tracker_end_timestamp(value: object) -> pd.Timestamp:
+    if value is None or pd.isna(value) or str(value).strip() == "":
+        return pd.NaT
+    timestamp = pd.to_datetime(value, errors="coerce", dayfirst=True)
+    if pd.isna(timestamp):
+        return pd.NaT
+    raw_value = str(value).strip()
+    if raw_value and not any(separator in raw_value for separator in [":", "T"]):
+        return timestamp + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+    return timestamp
+
+
+def _normalise_approval_status(value: object) -> str:
+    text = _clean_optional_text(value)
+    if text == "":
+        return ""
+    key = normalize_site_name(text)
+    mapping = {
+        "approved": "Approved",
+        "approve": "Approved",
+        "accepted": "Approved",
+        "pending": "Pending",
+        "open": "Pending",
+        "rejected": "Rejected",
+        "reject": "Rejected",
+        "declined": "Rejected",
+        "needs clarification": "Needs clarification",
+        "needsclarification": "Needs clarification",
+        "clarification": "Needs clarification",
+    }
+    return mapping.get(key, text[:1].upper() + text[1:])
+
+
+def _tracker_exclusion_reason(row: pd.Series) -> str:
+    parts = [
+        _clean_optional_text(row.get("event_type_1", "")),
+        _clean_optional_text(row.get("event_type_2", "")),
+    ]
+    reason = " - ".join(part for part in parts if part)
+    affected_device = _clean_optional_text(row.get("affected_device", ""))
+    if affected_device:
+        return f"{reason} ({affected_device})" if reason else affected_device
+    return reason
+
+
+def _fill_open_tracker_end_dates(
+    approved: pd.DataFrame,
+    raw_availability: pd.DataFrame | None,
+) -> pd.Series:
+    ends = pd.to_datetime(approved["end_timestamp"], errors="coerce")
+    if ends.notna().all():
+        return ends
+
+    if raw_availability is not None and not raw_availability.empty:
+        max_raw_timestamp = pd.to_datetime(raw_availability["timestamp"], errors="coerce").max()
+    else:
+        max_raw_timestamp = pd.NaT
+
+    fallback = approved["start_timestamp"].map(lambda value: pd.Timestamp(value).ceil("D") - pd.Timedelta(nanoseconds=1))
+    if pd.notna(max_raw_timestamp):
+        fallback = fallback.map(lambda value: max(value, max_raw_timestamp))
+    return ends.fillna(fallback)
 
 
 def _parse_scada_workbook_upload(file_name: str, file_bytes: bytes) -> pd.DataFrame:

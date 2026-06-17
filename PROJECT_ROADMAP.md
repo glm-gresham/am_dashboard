@@ -32,9 +32,9 @@ During early development, manual CSV/XLSX uploads and SQLite are acceptable. The
 | Area | Stage | Status | Notes |
 | --- | --- | --- | --- |
 | Raw availability upload | Stage 1 | Started | Manual CSV/XLSX upload exists as a first pass. |
-| XLSX event tracker import | Stage 1 | Not started | Use the current shared owner/contractor tracker file first. |
-| Approval-state handling | Stage 1 | Not started | Only approved requests should affect net availability. |
-| Net availability calculation | Stage 1 | Started | Current calculation exists, but must be changed to approved-only exclusions. |
+| XLSX event tracker import | Stage 1 | Started | Current shared owner/contractor tracker XLSX can be imported into the workbench. |
+| Approval-state handling | Stage 1 | Started | Imported tracker rows default to `Pending` and can be reviewed in the workbench. |
+| Net availability calculation | Stage 1 | Started | Current calculation now applies approved tracker exclusions only. |
 | Lost MWh insight | Stage 1 | Not started | Useful after tracker approval flow is working. |
 | Tracker severity and owner fields | Stage 2 | Not started | Add `severity` and `assigned_to` after the event tracker project adds them. |
 | Lost revenue insight | Stage 2 | Not started | Leave for later after the MWh method and revenue assumptions are agreed. |
@@ -177,10 +177,8 @@ Beginner checkpoint:
 
 ## Current Next Actions
 
-1. Build the current XLSX event tracker import using the documented column mapping.
-2. Add approval-state handling to the Commercial / O&M module.
-3. Change net availability so only approved exclusions are applied.
-4. Add lost MWh calculations using MW capacity and interval duration.
-5. Extend the export pack with tracker requests, approved exclusions, lost MWh, and audit lineage.
-6. Keep `severity` and `assigned_to` as Stage 2 tracker fields, aligned with the event tracker project.
-7. Confirm whether the dashboard will be hosted on Streamlit Community Cloud, an internal server, or another company-approved platform.
+1. Validate the tracker import with the real shared XLSX file.
+2. Add lost MWh calculations using MW capacity and interval duration.
+3. Extend the export pack with lost MWh and audit lineage.
+4. Keep `severity` and `assigned_to` as Stage 2 tracker fields, aligned with the event tracker project.
+5. Confirm whether the dashboard will be hosted on Streamlit Community Cloud, an internal server, or another company-approved platform.

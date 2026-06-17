@@ -16,6 +16,7 @@ import raw_availability_data as raw_availability_data_module
 from asset_metadata import ASSET_METADATA_PATH
 from availability_domain import (
     availability_domain_table_inventory,
+    approved_exclusions_from_tracker,
     calculate_final_availability,
     build_contract_seed_view,
     build_discrepancy_events,
@@ -24,6 +25,7 @@ from availability_domain import (
     exclusions_template,
     export_final_availability_pack,
     parse_uploaded_exclusions,
+    parse_uploaded_event_tracker,
     parse_uploaded_raw_availability,
     raw_upload_template,
     template_csv_bytes,
@@ -1150,6 +1152,11 @@ def render_final_availability_workbench(df: pd.DataFrame) -> None:
             type=["csv", "xlsx", "xlsm"],
             key="final_availability_exclusions_upload",
         )
+        tracker_file = st.file_uploader(
+            "Event tracker XLSX",
+            type=["xlsx", "xlsm"],
+            key="final_availability_tracker_upload",
+        )
 
     threshold_pct = st.number_input(
         "Contract availability threshold",
@@ -1186,7 +1193,64 @@ def render_final_availability_workbench(df: pd.DataFrame) -> None:
     for message in exclusion_messages:
         st.warning(message)
 
-    final_result = calculate_final_availability(raw_upload, exclusions, threshold_pct)
+    tracker_records, tracker_messages = parse_uploaded_event_tracker(tracker_file, raw_upload)
+    for message in tracker_messages:
+        st.warning(message)
+
+    if not tracker_records.empty:
+        st.markdown("<div class='section-title'>Event Tracker Requests</div>", unsafe_allow_html=True)
+        tracker_display = tracker_records.rename(
+            columns={
+                "event_id": "Event ID",
+                "asset_name": "Asset",
+                "event_type_1": "Type 1",
+                "event_type_2": "Type 2",
+                "device_granularity": "Device type",
+                "affected_device": "Device name",
+                "tracker_status": "Tracker status",
+                "approval_status": "Approval status",
+                "start_timestamp": "Start",
+                "end_timestamp": "End",
+            }
+        )
+        tracker_columns = [
+            "Event ID",
+            "Asset",
+            "Type 1",
+            "Type 2",
+            "Device type",
+            "Device name",
+            "Tracker status",
+            "Approval status",
+            "Start",
+            "End",
+        ]
+        edited_tracker = st.data_editor(
+            tracker_display[tracker_columns],
+            hide_index=True,
+            use_container_width=True,
+            disabled=[column for column in tracker_columns if column != "Approval status"],
+            column_config={
+                "Approval status": st.column_config.SelectboxColumn(
+                    options=["Pending", "Approved", "Rejected", "Needs clarification"],
+                    required=True,
+                )
+            },
+            key="final_availability_tracker_editor",
+        )
+        tracker_records = tracker_records.copy()
+        tracker_records["approval_status"] = edited_tracker["Approval status"].values
+
+    tracker_exclusions = approved_exclusions_from_tracker(tracker_records, raw_upload)
+    applied_exclusions = pd.concat(
+        [frame for frame in [exclusions, tracker_exclusions] if not frame.empty],
+        ignore_index=True,
+        sort=False,
+    ) if not exclusions.empty or not tracker_exclusions.empty else exclusions
+
+    final_result = calculate_final_availability(raw_upload, applied_exclusions, threshold_pct)
+    if not tracker_records.empty:
+        final_result["tracker_requests"] = tracker_records
     contract_position = final_result["contract_position"]
     portfolio_position = contract_position[contract_position["asset_id"].eq("PORTFOLIO")]
     summary_row = portfolio_position.iloc[0] if not portfolio_position.empty else contract_position.iloc[0]

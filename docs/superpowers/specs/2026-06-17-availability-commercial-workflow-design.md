@@ -163,7 +163,7 @@ The Portfolio Availability and Asset Detail tabs should consume the calculated o
 
 ## Implementation Notes
 
-The current manual upload workbench is a good first foundation. The next implementation should add current XLSX tracker import and approval-state handling before expanding the commercial impact views. The parser should preserve `event ID`, `site name`, `type1`, `type2`, `device type`, `device name`, `status`, `start date`, and `end date`. Applying every uploaded exclusion row should be replaced with explicit filtering so only approved requests affect net availability. Lost revenue should be left for Stage 2.
+The current manual upload workbench now includes the first pass of current XLSX tracker import and approval-state handling. The parser preserves `event ID`, `site name`, `type1`, `type2`, `device type`, `device name`, `status`, `start date`, and `end date`. Imported tracker rows default to internal `Pending`; only rows changed to `Approved` affect net availability. Lost revenue should be left for Stage 2.
 
 ## Open Decisions
 
