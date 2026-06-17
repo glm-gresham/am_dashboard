@@ -10,12 +10,12 @@ The target operating workflow is:
 
 1. Raw availability figures are downloaded from the relevant SCADAs for each site.
 2. Asset managers upload the raw availability files into the AM Dashboard.
-3. Contractors submit exclusion requests in an external event tracker.
-4. Asset managers import tracker exports into the AM Dashboard.
+3. Contractors submit exclusion requests in an external event tracker. Today this is a shared XLSX file used by the owner and contractors; later it will be replaced by the polished online event tracker.
+4. Asset managers import tracker XLSX exports into the AM Dashboard.
 5. The dashboard shows exclusion requests by approval state.
 6. Only approved requests flow into the exclusion register used for net availability.
 7. Asset managers run the net availability calculation.
-8. The dashboard reports availability, lost MWh, lost revenue, export packs, and audit trail outputs.
+8. The dashboard reports availability, lost MWh, export packs, and audit trail outputs. Lost revenue is a Stage 2 output.
 
 The intended data architecture remains:
 
@@ -25,7 +25,19 @@ The intended data architecture remains:
 4. The Streamlit user interface reads from SQLite only.
 5. GitHub stores the project code, documentation, and deployment workflow.
 
-During early development, manual CSV/XLSX uploads and SQLite are acceptable. Later, SCADA data and event tracker data can be automated through APIs, Snowflake ingestion, or governed file drops. This keeps the user interface simple and testable while allowing the operating model to mature.
+During early development, manual CSV/XLSX uploads and SQLite are acceptable. The current event tracker import should target the shared XLSX file. Later, SCADA data and event tracker data can be automated through APIs, Snowflake ingestion, or governed file drops. This keeps the user interface simple and testable while allowing the operating model to mature.
+
+## Roadmap Tracker
+
+| Area | Stage | Status | Notes |
+| --- | --- | --- | --- |
+| Raw availability upload | Stage 1 | Started | Manual CSV/XLSX upload exists as a first pass. |
+| XLSX event tracker import | Stage 1 | Not started | Use the current shared owner/contractor tracker file first. |
+| Approval-state handling | Stage 1 | Not started | Only approved requests should affect net availability. |
+| Net availability calculation | Stage 1 | Started | Current calculation exists, but must be changed to approved-only exclusions. |
+| Lost MWh insight | Stage 1 | Not started | Useful after tracker approval flow is working. |
+| Lost revenue insight | Stage 2 | Not started | Leave for later after the MWh method and revenue assumptions are agreed. |
+| Online event tracker integration | Stage 2 | Not started | Replaces XLSX import once the polished tracker exists. |
 
 ## Phase 1: Local Foundation
 
@@ -81,7 +93,7 @@ Beginner checkpoint:
 Goal: support the internal raw-to-net availability workflow.
 
 - Upload raw availability files from SCADA exports.
-- Import event tracker exports from the external contractor tracker.
+- Import event tracker XLSX exports from the current shared owner/contractor tracker.
 - Map tracker records to exclusion requests using event ID, site, affected device, start time, end time, reason, and status.
 - Show request states such as `Pending`, `Approved`, `Rejected`, and `Needs clarification`.
 - Apply only approved exclusions to the net availability calculation.
@@ -101,16 +113,13 @@ Goal: quantify the commercial consequences of availability loss.
 
 - Calculate lost MWh by site and period.
 - Calculate lost MWh by device and period when device-level data is available.
-- Calculate lost revenue by site and period.
-- Calculate lost revenue by device and period.
 - Show pending exclusion exposure so asset managers can see the value still awaiting decision.
-- Add export packs for commercial review, including gross-to-net bridge, exclusions, discrepancies, lost MWh, lost revenue, and audit trail.
-- Agree the price source or price assumption used for lost revenue.
+- Add export packs for commercial review, including gross-to-net bridge, exclusions, discrepancies, lost MWh, and audit trail.
+- Keep lost revenue as a Stage 2 feature after the lost MWh method and revenue assumptions are agreed.
 
 Beginner checkpoint:
 
-- You can explain the difference between availability percentage, lost MWh, and lost revenue.
-- You know which price assumption or revenue source is being used.
+- You can explain the difference between availability percentage and lost MWh.
 - You can identify whether a commercial impact number is final or still affected by pending exclusions.
 
 ## Phase 6: GitHub Workflow
@@ -148,10 +157,9 @@ Beginner checkpoint:
 
 ## Current Next Actions
 
-1. Confirm the event tracker export format and required fields.
+1. Confirm the current XLSX event tracker format and required fields.
 2. Add tracker import and approval-state handling to the Commercial / O&M module.
 3. Change net availability so only approved exclusions are applied.
 4. Add lost MWh calculations using MW capacity and interval duration.
-5. Agree the first revenue price assumption or source for lost revenue.
-6. Extend the export pack with tracker requests, approved exclusions, lost MWh, lost revenue, and audit lineage.
-7. Confirm whether the dashboard will be hosted on Streamlit Community Cloud, an internal server, or another company-approved platform.
+5. Extend the export pack with tracker requests, approved exclusions, lost MWh, and audit lineage.
+6. Confirm whether the dashboard will be hosted on Streamlit Community Cloud, an internal server, or another company-approved platform.
